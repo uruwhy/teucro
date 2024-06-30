@@ -17,13 +17,13 @@ typedef DWORD  (NTAPI * NTFLUSHINSTRUCTIONCACHE)( HANDLE, PVOID, ULONG );
 typedef ULONG_PTR (WINAPI * REFLECTIVELOADER)( VOID );
 typedef BOOL (WINAPI * DLLMAIN)( HINSTANCE, DWORD, LPVOID );
 
-#define KERNEL32DLL_HASH                0x6A4ABC5B
-#define NTDLLDLL_HASH                   0x3CFA685D
+#define KERNEL32DLL_HASH                0x7040ee75
+#define NTDLLDLL_HASH                   0x22d3b5ed
 
-#define LOADLIBRARYA_HASH               0xEC0E4E8E
-#define GETPROCADDRESS_HASH             0x7C0DFCAA
-#define VIRTUALALLOC_HASH               0x91AFCA54
-#define NTFLUSHINSTRUCTIONCACHE_HASH    0x534C0AB8
+#define LOADLIBRARYA_HASH               0x5fbff0fb
+#define GETPROCADDRESS_HASH             0xcf31bb1f
+#define VIRTUALALLOC_HASH               0x382c0f97
+#define NTFLUSHINSTRUCTIONCACHE_HASH    0x80183adf
 
 #define IMAGE_REL_BASED_ARM_MOV32A      5
 #define IMAGE_REL_BASED_ARM_MOV32T      7
@@ -50,26 +50,29 @@ __forceinline unsigned long djb2_hash(char* input) {
     return hash;
 }
 
-__forceinline unsigned long djb2_hash_case_insensitive(char* input, size_t count) {
+__forceinline unsigned long djb2_hash_case_insensitive_wide(wchar_t* input, size_t count) {
     register unsigned long hash = 5381;
-    int c;
+    char* input_narrow = (char*)input;
+    int c = *input_narrow;
 
-    while (c = *input++ && count > 0) {
+    while (c && count > 0) {
         if (c <= 90 && c >= 65) {
             c += 32; // convert to lowercase.
         }
         hash = ((hash << 5) + hash) + c;
         count--;
+        input_narrow += sizeof(wchar_t);
+        c = *input_narrow;
     }
     return hash;
 }
 
 // https://learn.microsoft.com/es-es/windows/win32/api/ntdef/ns-ntdef-_unicode_string
-typedef struct _UNICODE_STRING {
+typedef struct _UNICODE_STR {
     USHORT Length;
     USHORT MaximumLength;
     PWSTR  Buffer;
-} UNICODE_STRING, *PUNICODE_STRING;
+} UNICODE_STR, *PUNICODE_STR;
 
 // WinDbg> dt -v ntdll!_LDR_DATA_TABLE_ENTRY
 typedef struct _LDR_DATA_TABLE_ENTRY {

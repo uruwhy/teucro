@@ -3,6 +3,8 @@
 //      https://github.com/stephenfewer/ReflectiveDLLInjection/blob/master/dll/src/ReflectiveLoader.c
 // Additional references:
 //      https://void-stack.github.io/blog/post-Exploring-PEB/
+//      https://www.nirsoft.net/kernel_struct/vista/PEB.html
+//      https://www.nirsoft.net/kernel_struct/vista/LDR_DATA_TABLE_ENTRY.html
 
 #include "loader.h"
 
@@ -23,14 +25,12 @@ __declspec(dllexport) ULONG_PTR WINAPI ReflectiveLoader( LPVOID lpParameter ) {
     NTFLUSHINSTRUCTIONCACHE pNtFlushInstructionCache = NULL;
 
     USHORT usCounter;
-    USHORT nameLenCounter;
 
     // Initial location of DLL to inject in memoory
     ULONG_PTR uiLibraryAddress = (ULONG_PTR)lpParameter;
 
     // process environment block pointers
     ULONG_PTR pebAddress;
-
     ULONG_PTR pPebLdrData;
 
     // variables for processing the kernel's export table
@@ -43,24 +43,18 @@ __declspec(dllexport) ULONG_PTR WINAPI ReflectiveLoader( LPVOID lpParameter ) {
     // variables for loading the target image
     ULONG_PTR uiHeaderValue;
     PLDR_DATA_TABLE_ENTRY pebModuleEntry;
-    ULONG_PTR pebModuleName;
+    PWSTR pebModuleName;
     ULONG_PTR pebModuleNameHash;
     ULONG_PTR uiValueD;
     ULONG_PTR uiValueE;
 
 
-    // Process the kernel's exports for required loader functions
+    // ===========================================================//
+    // Process the kernel's exports for required loader functions //
+    // ===========================================================//
 
-    // Access the PEB
-    #ifdef WIN_X64
-    pebAddress = __readgsqword( 0x60 );
-    #else
-    #ifdef WIN_X86
-    pebAddress = __readfsdword( 0x30 );
-    #else WIN_ARM
-    pebAddress = *(DWORD *)( (BYTE *)_MoveFromCoprocessor( 15, 0, 13, 0, 2 ) + 0x30 );
-    #endif
-    #endif
+    // Access the PEB (x64 only)
+    pebAddress = __readgsqword(0x60);
 
     // Get the loaded modules for the host process
     // References: https://learn.microsoft.com/en-us/windows/win32/api/winternl/ns-winternl-peb
@@ -71,14 +65,14 @@ __declspec(dllexport) ULONG_PTR WINAPI ReflectiveLoader( LPVOID lpParameter ) {
     pebModuleEntry = (PLDR_DATA_TABLE_ENTRY)((PPEB_LDR_DATA)pPebLdrData)->InMemoryOrderModuleList.Flink;
     while (pebModuleEntry) {
         // get pointer to current module name (unicode string)
-        pebModuleName = (ULONG_PTR)(pebModuleEntry)->BaseDllName.pBuffer;
-        // Determine length for the loop
-        nameLenCounter = pebModuleEntry->BaseDllName.Length;
-        // will store the hash of the module name - clear for each entry
-        pebModuleNameHash = 0;
+        pebModuleName = pebModuleEntry->BaseDllName.Buffer;
 
         // Perform hash comparisons to check if we need to process this module
-        // TODO
+        // We want kernel32.dll and ntdll.dll
+        pebModuleNameHash = djb2_hash_case_insensitive_wide(pebModuleName, pebModuleEntry->BaseDllName.Length);
+        if (pebModuleNameHash == KERNEL32DLL_HASH) {
+
+        }
     }
 }
 }
