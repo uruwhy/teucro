@@ -1,0 +1,15 @@
+[package]
+name = "embed_resources"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "embed_resources"
+path = "src/lib.rs"
+proc-macro = true
+
+[dependencies]
+
+# For Windows API
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.57.0"
