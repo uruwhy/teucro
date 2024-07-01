@@ -57,8 +57,16 @@ __declspec(dllexport) ULONG_PTR WINAPI ReflectiveLoader( LPVOID lpParameter ) {
     // Process the kernel's exports for required loader functions //
     // ===========================================================//
 
-    // Access the PEB (x64 only)
+    // Access the PEB
+#ifdef WIN_X64
     pebAddress = __readgsqword(0x60);
+#else
+#ifdef WIN_X86
+    pebAddress = __readfsdword(0x30);
+#else WIN_ARM
+    pebAddress = *(DWORD *)((BYTE *)_MoveFromCoprocessor( 15, 0, 13, 0, 2 ) + 0x30);
+#endif
+#endif
 
     // Get the loaded modules for the host process
     // References: https://learn.microsoft.com/en-us/windows/win32/api/winternl/ns-winternl-peb
