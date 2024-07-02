@@ -87,9 +87,9 @@ unsafe fn extract_text_section(binary_path: &str, dest_path: &str) {
         if (*curr_section).Name == target_section_name {
             // Write text section to output file
             let data_start_ptr: *const u8 = ptr_from_rva!((*curr_section).PointerToRawData, binary_base_addr_val, u8);
-            let data_size = (*curr_section).SizeOfRawData;
+            let data_size = (*curr_section).Misc.VirtualSize;
             let data: &[u8] = std::slice::from_raw_parts(data_start_ptr, data_size as usize);
-            println!("Found .text section starting at RVA 0x{:x} ({} bytes)", (*curr_section).PointerToRawData, data_size);
+            println!("Found .text section starting at RVA 0x{:x} (0x{:x} bytes)", (*curr_section).PointerToRawData, data_size);
 
             let mut dest_file = File::create(dest_path).unwrap();
             dest_file.write_all(data).unwrap();
