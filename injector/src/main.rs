@@ -1,3 +1,7 @@
+use embed_resources::*;
+
 fn main() {
-    println!("Hello, world!");
+    extract_shellcode!("C:\\Windows\\System32\\notepad.exe", "C:\\Users\\Public\\notepadtest.bin");
+
+    println!("Done");
 }
