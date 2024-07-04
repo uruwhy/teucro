@@ -19,8 +19,10 @@
 // this code will be compiled with the /O2 and /Ob1 switches. Bonus points if we could take advantage of
 // RIP relative addressing in this instance but I dont believe we can do so with the compiler intrinsics
 // available (and no inline asm available under x64).
+#pragma section(".text")
 __declspec(noinline) ULONG_PTR caller( VOID ) { return (ULONG_PTR)_ReturnAddress(); }
 
+#pragma section(".text")
 __declspec(dllexport) ULONG_PTR WINAPI ReflectiveLoader( LPVOID lpParameter ) {
     // Function pointers
     LOADLIBRARYA pLoadLibraryA     = NULL;

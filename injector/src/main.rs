@@ -1,7 +1,10 @@
 use embed_resources::*;
 
 fn main() {
-    extract_shellcode!("C:\\Windows\\System32\\notepad.exe", "C:\\Users\\Public\\notepadtest.bin");
+    let func_addr = extract_shellcode_and_get_export_rva!("..\\loader\\loader.dll", "..\\loader\\loader.bin", "ReflectiveLoader");
+
+    let shellcode = include_bytes!("../../loader/loader.bin");
+
 
     println!("Done");
 }
