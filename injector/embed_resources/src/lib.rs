@@ -29,7 +29,7 @@ use windows::Win32::{
     },
 };
 
-macro_rules! ptr_from_rva {
+macro_rules! ptr_from_offset {
     ($rva:expr, $base_addr:expr, $t:ty) => {
         ($base_addr + ($rva as isize)) as *const $t
     };
@@ -71,7 +71,7 @@ unsafe fn extract_text_section_and_get_export_rva(dll_path: &str, dest_path: &st
     }
 
     // Verify NT headers
-    let nt_headers_ptr: *const IMAGE_NT_HEADERS64 = ptr_from_rva!((*dos_header_ptr).e_lfanew, library_base_addr_val, IMAGE_NT_HEADERS64);
+    let nt_headers_ptr: *const IMAGE_NT_HEADERS64 = ptr_from_offset!((*dos_header_ptr).e_lfanew, library_base_addr_val, IMAGE_NT_HEADERS64);
     if (*nt_headers_ptr).Signature != IMAGE_NT_SIGNATURE {
         panic!("Invalid NT headers - IMAGE_NT_SIGNATURE mismatch.");
     } else if (*nt_headers_ptr).OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC {
@@ -85,42 +85,6 @@ unsafe fn extract_text_section_and_get_export_rva(dll_path: &str, dest_path: &st
 
     println!("Validated DOS and NT headers");
 
-    // Iterate over sections to find .text section
-    // Section table begins at end of NT headers
-    let section_table: *const IMAGE_SECTION_HEADER = ptr_from_rva!(
-        (*nt_headers_ptr).FileHeader.SizeOfOptionalHeader,
-        core::ptr::addr_of!((*nt_headers_ptr).OptionalHeader) as isize,
-        IMAGE_SECTION_HEADER
-    );
-
-    println!("Searching for .text section");
-    let target_section_name: &[u8] = b".text\0\0\0"; // pad to 8 bytes for slice comparison
-    let mut extracted: bool = false;
-    for i in 0..(*nt_headers_ptr).FileHeader.NumberOfSections {
-        let curr_section: *const IMAGE_SECTION_HEADER = section_table.add(i as usize);
-        if (*curr_section).Name == target_section_name {
-            // Write text section to output file
-            let data_start_ptr: *const u8 = ptr_from_rva!((*curr_section).PointerToRawData, library_base_addr_val, u8);
-            let data_size = (*curr_section).Misc.VirtualSize;
-            let data: &[u8] = std::slice::from_raw_parts(data_start_ptr, data_size as usize);
-            println!("Found .text section starting at RVA 0x{:x} (0x{:x} bytes)", (*curr_section).PointerToRawData, data_size);
-
-            let mut dest_file = File::create(dest_path).unwrap();
-            dest_file.write_all(data).unwrap();
-            println!("Wrote .text section to dest file {}", dest_path);
-
-            extracted = true;
-            break;
-        }
-    }
-
-    if !extracted {
-        panic!("Failed to find and extract .text section.");
-    }
-
-    // Get address for desired export
-    println!("Grabbing address for exported function {}", export);
-
     // Check that module has exports
     let export_dir_rva: u32 = unsafe { (*nt_headers_ptr).OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT.0 as usize].VirtualAddress };
     let export_dir_size: u32 = unsafe { (*nt_headers_ptr).OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT.0 as usize].Size };
@@ -131,13 +95,82 @@ unsafe fn extract_text_section_and_get_export_rva(dll_path: &str, dest_path: &st
         panic!("Could not find module's export directory: export size of 0.");
     }
 
+    // Iterate over sections to find .text section and which section contains the export dir
+    // Section table begins at end of NT headers
+    let section_table: *const IMAGE_SECTION_HEADER = ptr_from_offset!(
+        (*nt_headers_ptr).FileHeader.SizeOfOptionalHeader,
+        core::ptr::addr_of!((*nt_headers_ptr).OptionalHeader) as isize,
+        IMAGE_SECTION_HEADER
+    );
+
+    println!("Searching for .text section and export dir section");
+    let target_section_name: &[u8] = b".text\0\0\0"; // pad to 8 bytes for slice comparison
+    let mut extracted: bool = false;
+    let mut found_export_section: bool = false;
+    let mut export_dir_offset: u32 = 0;
+    for i in 0..(*nt_headers_ptr).FileHeader.NumberOfSections {
+        let curr_section: *const IMAGE_SECTION_HEADER = section_table.add(i as usize);
+        if (*curr_section).Name == target_section_name {
+            // Write text section to output file
+            let data_start_ptr: *const u8 = ptr_from_offset!((*curr_section).PointerToRawData, library_base_addr_val, u8);
+            let data_size = (*curr_section).Misc.VirtualSize;
+            let data: &[u8] = std::slice::from_raw_parts(data_start_ptr, data_size as usize);
+            println!("Found .text section starting at RVA 0x{:x} (0x{:x} bytes)", (*curr_section).PointerToRawData, data_size);
+
+            let mut dest_file = File::create(dest_path).unwrap();
+            dest_file.write_all(data).unwrap();
+            println!("Wrote .text section to dest file {}", dest_path);
+
+            extracted = true;
+        }
+        if (*curr_section).VirtualAddress <= export_dir_rva && export_dir_rva + export_dir_size <= (*curr_section).VirtualAddress + (*curr_section).Misc.VirtualSize {
+            let section_name = std::str::from_utf8((*curr_section).Name).unwrap();
+            println!("Section {} contains export directory.", section_name);
+
+            // Reference: https://stackoverflow.com/a/10138719
+            export_dir_offset = export_dir_rva + (*curr_section).PointerToRawData - (*curr_section).VirtualAddress;
+
+
+            found_export_section = true;
+        }
+        if extracted && found_export_section {
+            break;
+        }
+    }
+
+    if !extracted {
+        panic!("Failed to find and extract .text section.");
+    }
+
+    if !found_export_section {
+        panic!("Failed to find export directory.");
+    }
+
+    // Get address for desired export
+    println!("Grabbing address for exported function {}", export);
+
     // Access export directory
-    let export_dir_ptr: *const IMAGE_EXPORT_DIRECTORY = ptr_from_rva!(export_dir_rva, library_base_addr_val, IMAGE_EXPORT_DIRECTORY);
+    let export_dir_ptr: *const IMAGE_EXPORT_DIRECTORY = ptr_from_offset!(export_dir_rva, library_base_addr_val, IMAGE_EXPORT_DIRECTORY);
+
+    println!("library_base_addr_val: 0x{:x}", library_base_addr_val as isize);
+    println!("export_dir_ptr: 0x{:x}", export_dir_ptr as isize);
+
+    println!("Export directory info:");
+    println!("Base:                  {:#010x}", (*export_dir_ptr).Base);
+    println!("NumberOfFunctions:     {:#010x}", (*export_dir_ptr).NumberOfFunctions);
+    println!("NumberOfNames:         {:#010x}", (*export_dir_ptr).NumberOfNames);
+    println!("AddressOfFunctions:    {:#010x}", (*export_dir_ptr).AddressOfFunctions);
+    println!("AddressOfNames:        {:#010x}", (*export_dir_ptr).AddressOfNames);
+    println!("AddressOfNameOrdinals: {:#010x}", (*export_dir_ptr).AddressOfNameOrdinals);
 
     // Get the exported functions, exported names, and name ordinals.
-    let exported_func_list_ptr: *const u32 = ptr_from_rva!(unsafe {(*export_dir_ptr).AddressOfFunctions}, library_base_addr_val, u32);
-    let exported_names_list_ptr: *const u32 = ptr_from_rva!(unsafe {(*export_dir_ptr).AddressOfNames}, library_base_addr_val, u32);
-    let exported_ordinals_list_ptr: *const u16 = ptr_from_rva!(unsafe {(*export_dir_ptr).AddressOfNameOrdinals}, library_base_addr_val, u16);
+    let exported_func_list_ptr: *const u32 = ptr_from_offset!(unsafe {(*export_dir_ptr).AddressOfFunctions}, library_base_addr_val, u32);
+    let exported_names_list_ptr: *const u32 = ptr_from_offset!(unsafe {(*export_dir_ptr).AddressOfNames}, library_base_addr_val, u32);
+    let exported_ordinals_list_ptr: *const u16 = ptr_from_offset!(unsafe {(*export_dir_ptr).AddressOfNameOrdinals}, library_base_addr_val, u16);
+
+    println!("Address of functions: 0x{:x}", (*export_dir_ptr).AddressOfFunctions);
+    println!("AddressOfNames: 0x{:x}", (*export_dir_ptr).AddressOfNames);
+    println!("AddressOfNameOrdinals: 0x{:x}", (*export_dir_ptr).AddressOfNameOrdinals);
 
     // Iterate through exported function names.
     // Note that we use NumberOfNames since we are only looking at functions
@@ -149,7 +182,7 @@ unsafe fn extract_text_section_and_get_export_rva(dll_path: &str, dest_path: &st
     for i in 0..num_names {
         // Get function name. Each entry of AddressOfNames is an RVA for the exported name
         let func_name_rva: u32 = unsafe { *(exported_names_list_ptr.add(i as usize)) };
-        let func_name_ptr: *const i8 = ptr_from_rva!(func_name_rva, library_base_addr_val, i8);
+        let func_name_ptr: *const i8 = ptr_from_offset!(func_name_rva, library_base_addr_val, i8);
         let func_name_cstr = unsafe { CStr::from_ptr(func_name_ptr) };
 
         let func_name_str = match func_name_cstr.to_str() {
