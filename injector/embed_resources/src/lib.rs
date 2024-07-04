@@ -124,13 +124,12 @@ unsafe fn extract_text_section_and_get_export_rva(dll_path: &str, dest_path: &st
             extracted = true;
         }
         if (*curr_section).VirtualAddress <= export_dir_rva && export_dir_rva + export_dir_size <= (*curr_section).VirtualAddress + (*curr_section).Misc.VirtualSize {
-            let section_name = std::str::from_utf8((*curr_section).Name).unwrap();
+            let section_name = std::str::from_utf8(&(*curr_section).Name).unwrap();
             println!("Section {} contains export directory.", section_name);
 
             // Reference: https://stackoverflow.com/a/10138719
             export_dir_offset = export_dir_rva + (*curr_section).PointerToRawData - (*curr_section).VirtualAddress;
-
-
+            println!("Export dir offset: 0x{:x}", export_dir_offset);
             found_export_section = true;
         }
         if extracted && found_export_section {
@@ -150,10 +149,7 @@ unsafe fn extract_text_section_and_get_export_rva(dll_path: &str, dest_path: &st
     println!("Grabbing address for exported function {}", export);
 
     // Access export directory
-    let export_dir_ptr: *const IMAGE_EXPORT_DIRECTORY = ptr_from_offset!(export_dir_rva, library_base_addr_val, IMAGE_EXPORT_DIRECTORY);
-
-    println!("library_base_addr_val: 0x{:x}", library_base_addr_val as isize);
-    println!("export_dir_ptr: 0x{:x}", export_dir_ptr as isize);
+    let export_dir_ptr: *const IMAGE_EXPORT_DIRECTORY = ptr_from_offset!(export_dir_offset, library_base_addr_val, IMAGE_EXPORT_DIRECTORY);
 
     println!("Export directory info:");
     println!("Base:                  {:#010x}", (*export_dir_ptr).Base);
@@ -168,7 +164,7 @@ unsafe fn extract_text_section_and_get_export_rva(dll_path: &str, dest_path: &st
     let exported_names_list_ptr: *const u32 = ptr_from_offset!(unsafe {(*export_dir_ptr).AddressOfNames}, library_base_addr_val, u32);
     let exported_ordinals_list_ptr: *const u16 = ptr_from_offset!(unsafe {(*export_dir_ptr).AddressOfNameOrdinals}, library_base_addr_val, u16);
 
-    println!("Address of functions: 0x{:x}", (*export_dir_ptr).AddressOfFunctions);
+    println!("AddressOfFunctions: 0x{:x}", (*export_dir_ptr).AddressOfFunctions);
     println!("AddressOfNames: 0x{:x}", (*export_dir_ptr).AddressOfNames);
     println!("AddressOfNameOrdinals: 0x{:x}", (*export_dir_ptr).AddressOfNameOrdinals);
 
