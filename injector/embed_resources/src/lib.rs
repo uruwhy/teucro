@@ -56,7 +56,7 @@ impl Parse for ExtractShellcodeMacroInput {
     }
 }
 
-unsafe fn extract_text_section_and_get_export_rva(dll_path: &str, dest_path: &str, export: &str) -> u32 {
+unsafe fn extract_text_section_and_get_export_offset(dll_path: &str, dest_path: &str, export: &str) -> u32 {
     println!("Extracting text section from DLL: {}", dll_path);
     let file_data: Vec<u8> = std::fs::read(dll_path).unwrap();
 
@@ -79,15 +79,15 @@ unsafe fn extract_text_section_and_get_export_rva(dll_path: &str, dest_path: &st
     }
 
     // Verify module is a DLL
-    if unsafe { (*nt_headers_ptr).FileHeader.Characteristics & IMAGE_FILE_DLL != IMAGE_FILE_DLL } {
+    if (*nt_headers_ptr).FileHeader.Characteristics & IMAGE_FILE_DLL != IMAGE_FILE_DLL {
         panic!("Module is not a DLL.");
     }
 
     println!("Validated DOS and NT headers");
 
     // Check that module has exports
-    let export_dir_rva: u32 = unsafe { (*nt_headers_ptr).OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT.0 as usize].VirtualAddress };
-    let export_dir_size: u32 = unsafe { (*nt_headers_ptr).OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT.0 as usize].Size };
+    let export_dir_rva: u32 = (*nt_headers_ptr).OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT.0 as usize].VirtualAddress;
+    let export_dir_size: u32 = (*nt_headers_ptr).OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT.0 as usize].Size;
     if export_dir_rva == 0 {
         panic!("Could not find module's export directory: Null RVA.");
     }
@@ -108,6 +108,10 @@ unsafe fn extract_text_section_and_get_export_rva(dll_path: &str, dest_path: &st
     let mut extracted: bool = false;
     let mut found_export_section: bool = false;
     let mut export_dir_offset: u32 = 0;
+    let mut export_section_raw_offset: u32 = 0;
+    let mut export_section_rva: u32 = 0;
+    let mut text_section_raw_offset: u32 = 0;
+    let mut text_section_rva: u32 = 0;
     for i in 0..(*nt_headers_ptr).FileHeader.NumberOfSections {
         let curr_section: *const IMAGE_SECTION_HEADER = section_table.add(i as usize);
         if (*curr_section).Name == target_section_name {
@@ -115,7 +119,9 @@ unsafe fn extract_text_section_and_get_export_rva(dll_path: &str, dest_path: &st
             let data_start_ptr: *const u8 = ptr_from_offset!((*curr_section).PointerToRawData, library_base_addr_val, u8);
             let data_size = (*curr_section).Misc.VirtualSize;
             let data: &[u8] = std::slice::from_raw_parts(data_start_ptr, data_size as usize);
-            println!("Found .text section starting at RVA 0x{:x} (0x{:x} bytes)", (*curr_section).PointerToRawData, data_size);
+            text_section_raw_offset = (*curr_section).PointerToRawData;
+            text_section_rva = (*curr_section).VirtualAddress;
+            println!("Found .text section starting at raw offset 0x{:x} and RVA 0x{:x} (0x{:x} bytes)", text_section_raw_offset, text_section_rva, data_size);
 
             let mut dest_file = File::create(dest_path).unwrap();
             dest_file.write_all(data).unwrap();
@@ -128,7 +134,9 @@ unsafe fn extract_text_section_and_get_export_rva(dll_path: &str, dest_path: &st
             println!("Section {} contains export directory.", section_name);
 
             // Reference: https://stackoverflow.com/a/10138719
-            export_dir_offset = export_dir_rva + (*curr_section).PointerToRawData - (*curr_section).VirtualAddress;
+            export_section_raw_offset = (*curr_section).PointerToRawData;
+            export_section_rva = (*curr_section).VirtualAddress;
+            export_dir_offset = export_dir_rva + export_section_raw_offset - export_section_rva;
             println!("Export dir offset: 0x{:x}", export_dir_offset);
             found_export_section = true;
         }
@@ -160,26 +168,35 @@ unsafe fn extract_text_section_and_get_export_rva(dll_path: &str, dest_path: &st
     println!("AddressOfNameOrdinals: {:#010x}", (*export_dir_ptr).AddressOfNameOrdinals);
 
     // Get the exported functions, exported names, and name ordinals.
-    let exported_func_list_ptr: *const u32 = ptr_from_offset!(unsafe {(*export_dir_ptr).AddressOfFunctions}, library_base_addr_val, u32);
-    let exported_names_list_ptr: *const u32 = ptr_from_offset!(unsafe {(*export_dir_ptr).AddressOfNames}, library_base_addr_val, u32);
-    let exported_ordinals_list_ptr: *const u16 = ptr_from_offset!(unsafe {(*export_dir_ptr).AddressOfNameOrdinals}, library_base_addr_val, u16);
-
-    println!("AddressOfFunctions: 0x{:x}", (*export_dir_ptr).AddressOfFunctions);
-    println!("AddressOfNames: 0x{:x}", (*export_dir_ptr).AddressOfNames);
-    println!("AddressOfNameOrdinals: 0x{:x}", (*export_dir_ptr).AddressOfNameOrdinals);
+    let exported_func_list_ptr: *const u32 = ptr_from_offset!(
+        (*export_dir_ptr).AddressOfFunctions + export_section_raw_offset - export_section_rva,
+        library_base_addr_val,
+        u32
+    );
+    let exported_names_list_ptr: *const u32 = ptr_from_offset!(
+        (*export_dir_ptr).AddressOfNames + export_section_raw_offset - export_section_rva,
+        library_base_addr_val,
+        u32
+    );
+    let exported_ordinals_list_ptr: *const u16 = ptr_from_offset!(
+        (*export_dir_ptr).AddressOfNameOrdinals + export_section_raw_offset - export_section_rva,
+        library_base_addr_val,
+        u16
+    );
 
     // Iterate through exported function names.
     // Note that we use NumberOfNames since we are only looking at functions
     // exported by name, not ordinal (NumberOfFunctions includes both)
-    let num_names = unsafe {(*export_dir_ptr).NumberOfNames};
-
+    let num_names = (*export_dir_ptr).NumberOfNames;
     println!("Number of names: {}", num_names);
 
     for i in 0..num_names {
         // Get function name. Each entry of AddressOfNames is an RVA for the exported name
-        let func_name_rva: u32 = unsafe { *(exported_names_list_ptr.add(i as usize)) };
-        let func_name_ptr: *const i8 = ptr_from_offset!(func_name_rva, library_base_addr_val, i8);
-        let func_name_cstr = unsafe { CStr::from_ptr(func_name_ptr) };
+        let func_name_rva: u32 = *(exported_names_list_ptr.add(i as usize));
+        let func_name_offset: u32 = func_name_rva + export_section_raw_offset - export_section_rva;
+
+        let func_name_ptr: *const i8 = ptr_from_offset!(func_name_offset, library_base_addr_val, i8);
+        let func_name_cstr = CStr::from_ptr(func_name_ptr);
 
         let func_name_str = match func_name_cstr.to_str() {
             Ok(s) => s,
@@ -188,20 +205,21 @@ unsafe fn extract_text_section_and_get_export_rva(dll_path: &str, dest_path: &st
             }
         };
 
-        println!("Found func {}", func_name_str);
-
         if func_name_str == export {
             // Use the ordinal to get the API address
-            let ordinal: u16 = unsafe { *(exported_ordinals_list_ptr.add(i as usize)) };
-            let func_rva: u32 = unsafe { *(exported_func_list_ptr.add(ordinal as usize)) };
+            let ordinal: u16 = *(exported_ordinals_list_ptr.add(i as usize));
+            let func_rva: u32 = *(exported_func_list_ptr.add(ordinal as usize));
+            let func_raw_offset: u32 = func_rva + text_section_raw_offset - text_section_rva;
+            let func_offset_from_text: u32 = func_raw_offset - text_section_raw_offset;
 
-            println!("Found target export {} with RVA 0x{:x}", func_name_str, func_rva);
+            println!("Found target export {} with raw offset 0x{:x} and RVA 0x{:x}", func_name_str, func_raw_offset, func_rva);
+            println!("Target export raw offset from .text section is 0x{:x}", func_offset_from_text);
 
             // Check if the address is a forwarder, meaning it's within the export directory
             if func_rva >= export_dir_rva && func_rva < export_dir_rva + export_dir_size {
                 panic!("Export API is a forwarder - not supported.");
             } else {
-                return func_rva;
+                return func_offset_from_text;
             }
         }
     }
@@ -211,18 +229,18 @@ unsafe fn extract_text_section_and_get_export_rva(dll_path: &str, dest_path: &st
 
 
 // Parse .text section of provided executable to get shellcode and write it to the specified location on disk
-// to embed via separate calls to include_bytes!
-// Sets return token to the specified exported function RVA as u32
+// to embed via separate calls to include_bytes! or obfuscation macro.
+// Sets return token to the specified exported function offset from the beginning of the .text section as u32.
 #[proc_macro]
-pub fn extract_shellcode_and_get_export_rva(input: TokenStream) -> TokenStream {
+pub fn extract_shellcode_and_get_export_offset(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as ExtractShellcodeMacroInput);
     let dll_path = String::from((&parsed.dll_path).value());
     let dest_path = String::from((&parsed.shellcode_dest_path).value());
     let export_func = String::from((&parsed.export_func).value());
-    let export_rva: u32 = unsafe { extract_text_section_and_get_export_rva(&dll_path, &dest_path, &export_func) };
+    let export_offset: u32 = unsafe { extract_text_section_and_get_export_offset(&dll_path, &dest_path, &export_func) };
 
     quote! {
-        #export_rva as u32;
+        #export_offset as u32
     }.into()
 }
 
