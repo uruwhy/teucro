@@ -23,7 +23,7 @@
 __declspec(noinline) ULONG_PTR caller( VOID ) { return (ULONG_PTR)_ReturnAddress(); }
 
 #pragma section(".text")
-__declspec(dllexport) ULONG_PTR WINAPI ReflectiveLoader( LPVOID lpParameter ) {
+__declspec(dllexport) DWORD WINAPI ReflectiveLoader( LPVOID lpParameter ) {
     // Function pointers
     LOADLIBRARYA pLoadLibraryA     = NULL;
     GETPROCADDRESS pGetProcAddress = NULL;
@@ -64,15 +64,15 @@ __declspec(dllexport) ULONG_PTR WINAPI ReflectiveLoader( LPVOID lpParameter ) {
     // ===========================================================//
 
     // Access the PEB
-#ifdef _WIN64
+// #ifdef _WIN64
     pebAddress = __readgsqword(0x60);
-#else
-#ifdef _WIN32
-    pebAddress = __readfsdword(0x30);
-#else WIN_ARM
-    pebAddress = *(DWORD *)((BYTE *)_MoveFromCoprocessor( 15, 0, 13, 0, 2 ) + 0x30);
-#endif
-#endif
+// #else
+//#ifdef _WIN32
+//    pebAddress = __readfsdword(0x30);
+//#else WIN_ARM
+//    pebAddress = *(DWORD *)((BYTE *)_MoveFromCoprocessor( 15, 0, 13, 0, 2 ) + 0x30);
+//#endif
+//#endif
 
     // Get the loaded modules for the host process
     // References: https://learn.microsoft.com/en-us/windows/win32/api/winternl/ns-winternl-peb

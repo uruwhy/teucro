@@ -47,10 +47,8 @@ lazy_static::lazy_static! {
         HashSet::from([
             djb2!("OpenProcess"),
             djb2!("VirtualAllocEx"),
-            djb2!("LoadLibraryW"),
             djb2!("WriteProcessMemory"),
             djb2!("CreateRemoteThread"),
-            djb2!("MessageBoxW"),
             djb2!("CloseHandle"),
         ])
     );
