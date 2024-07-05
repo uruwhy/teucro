@@ -6,24 +6,11 @@
 //      https://www.nirsoft.net/kernel_struct/vista/PEB.html
 //      https://www.nirsoft.net/kernel_struct/vista/LDR_DATA_TABLE_ENTRY.html
 //      https://blog.malicious.group/writing-your-own-rdi-srdi-loader-using-c-and-asm
+//      https://bruteratel.com/research/feature-update/2021/01/30/OBJEXEC/
 
 #include "loader.h"
-#ifdef WIN_ARM
-#include "armintr.h"
-#endif
 
-#pragma intrinsic( _ReturnAddress )
-
-// Original author's note:
-// This function can not be inlined by the compiler or we will not get the address we expect. Ideally
-// this code will be compiled with the /O2 and /Ob1 switches. Bonus points if we could take advantage of
-// RIP relative addressing in this instance but I dont believe we can do so with the compiler intrinsics
-// available (and no inline asm available under x64).
-#pragma section(".text")
-__declspec(noinline) ULONG_PTR caller( VOID ) { return (ULONG_PTR)_ReturnAddress(); }
-
-#pragma section(".text")
-__declspec(dllexport) DWORD WINAPI ReflectiveLoader( LPVOID lpParameter ) {
+DWORD ReflectiveLoader( LPVOID lpParameter ) {
     // Function pointers
     LOADLIBRARYA pLoadLibraryA     = NULL;
     GETPROCADDRESS pGetProcAddress = NULL;
@@ -63,16 +50,8 @@ __declspec(dllexport) DWORD WINAPI ReflectiveLoader( LPVOID lpParameter ) {
     // Process the kernel's exports for required loader functions //
     // ===========================================================//
 
-    // Access the PEB
-// #ifdef _WIN64
+    // Access the PEB (x64 only)
     pebAddress = __readgsqword(0x60);
-// #else
-//#ifdef _WIN32
-//    pebAddress = __readfsdword(0x30);
-//#else WIN_ARM
-//    pebAddress = *(DWORD *)((BYTE *)_MoveFromCoprocessor( 15, 0, 13, 0, 2 ) + 0x30);
-//#endif
-//#endif
 
     // Get the loaded modules for the host process
     // References: https://learn.microsoft.com/en-us/windows/win32/api/winternl/ns-winternl-peb
@@ -133,7 +112,7 @@ __declspec(dllexport) DWORD WINAPI ReflectiveLoader( LPVOID lpParameter ) {
             break;
 
         // Iterate to next module
-        pebModuleEntry = (PLDR_DATA_TABLE_ENTRY)pPebLdrData->InMemoryOrderModuleList.Flink;
+        pebModuleEntry = (PLDR_DATA_TABLE_ENTRY)pebModuleEntry->InMemoryOrderModuleList.Flink;
     }
 
     // testing
