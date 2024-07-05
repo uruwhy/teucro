@@ -23,7 +23,6 @@ use windows::Win32::{
             IMAGE_NT_HEADERS64,
             IMAGE_NT_OPTIONAL_HDR64_MAGIC,
             IMAGE_SECTION_HEADER,
-            IMAGE_FILE_DLL,
             IMAGE_DIRECTORY_ENTRY_EXPORT,
         },
     },
@@ -78,21 +77,14 @@ unsafe fn extract_text_section_and_get_export_offset(dll_path: &str, dest_path: 
         panic!("Only 64-bit binaries supported.");
     }
 
-    // Verify module is a DLL
-    if (*nt_headers_ptr).FileHeader.Characteristics & IMAGE_FILE_DLL != IMAGE_FILE_DLL {
-        panic!("Module is not a DLL.");
-    }
-
     println!("Validated DOS and NT headers");
 
-    // Check that module has exports
     let export_dir_rva: u32 = (*nt_headers_ptr).OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT.0 as usize].VirtualAddress;
     let export_dir_size: u32 = (*nt_headers_ptr).OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT.0 as usize].Size;
-    if export_dir_rva == 0 {
-        panic!("Could not find module's export directory: Null RVA.");
-    }
-    if export_dir_size == 0 {
-        panic!("Could not find module's export directory: export size of 0.");
+    let mut no_exports: bool = false;
+    if export_dir_rva == 0 || export_dir_size == 0 {
+        println!("No export, assuming PIC.");
+        no_exports = true;
     }
 
     // Iterate over sections to find .text section and which section contains the export dir
@@ -112,16 +104,17 @@ unsafe fn extract_text_section_and_get_export_offset(dll_path: &str, dest_path: 
     let mut export_section_rva: u32 = 0;
     let mut text_section_raw_offset: u32 = 0;
     let mut text_section_rva: u32 = 0;
+    let mut text_section_size: u32 = 0;
     for i in 0..(*nt_headers_ptr).FileHeader.NumberOfSections {
         let curr_section: *const IMAGE_SECTION_HEADER = section_table.add(i as usize);
         if (*curr_section).Name == target_section_name {
             // Write text section to output file
             let data_start_ptr: *const u8 = ptr_from_offset!((*curr_section).PointerToRawData, library_base_addr_val, u8);
-            let data_size = (*curr_section).Misc.VirtualSize;
-            let data: &[u8] = std::slice::from_raw_parts(data_start_ptr, data_size as usize);
+            text_section_size = (*curr_section).Misc.VirtualSize;
+            let data: &[u8] = std::slice::from_raw_parts(data_start_ptr, text_section_size as usize);
             text_section_raw_offset = (*curr_section).PointerToRawData;
             text_section_rva = (*curr_section).VirtualAddress;
-            println!("Found .text section starting at raw offset 0x{:x} and RVA 0x{:x} (0x{:x} bytes)", text_section_raw_offset, text_section_rva, data_size);
+            println!("Found .text section starting at raw offset 0x{:x} and RVA 0x{:x} (0x{:x} bytes)", text_section_raw_offset, text_section_rva, text_section_size);
 
             let mut dest_file = File::create(dest_path).unwrap();
             dest_file.write_all(data).unwrap();
@@ -129,7 +122,7 @@ unsafe fn extract_text_section_and_get_export_offset(dll_path: &str, dest_path: 
 
             extracted = true;
         }
-        if (*curr_section).VirtualAddress <= export_dir_rva && export_dir_rva + export_dir_size <= (*curr_section).VirtualAddress + (*curr_section).Misc.VirtualSize {
+        if !no_exports && (*curr_section).VirtualAddress <= export_dir_rva && export_dir_rva + export_dir_size <= (*curr_section).VirtualAddress + (*curr_section).Misc.VirtualSize {
             let section_name = std::str::from_utf8(&(*curr_section).Name).unwrap();
             println!("Section {} contains export directory.", section_name);
 
@@ -140,13 +133,18 @@ unsafe fn extract_text_section_and_get_export_offset(dll_path: &str, dest_path: 
             println!("Export dir offset: 0x{:x}", export_dir_offset);
             found_export_section = true;
         }
-        if extracted && found_export_section {
+        if extracted && (found_export_section || no_exports) {
             break;
         }
     }
 
     if !extracted {
         panic!("Failed to find and extract .text section.");
+    }
+
+    // Handle case for regular position-independent code
+    if no_exports {
+        return 0;
     }
 
     if !found_export_section {
@@ -211,6 +209,10 @@ unsafe fn extract_text_section_and_get_export_offset(dll_path: &str, dest_path: 
             let func_rva: u32 = *(exported_func_list_ptr.add(ordinal as usize));
             let func_raw_offset: u32 = func_rva + text_section_raw_offset - text_section_rva;
             let func_offset_from_text: u32 = func_raw_offset - text_section_raw_offset;
+
+            if func_rva < text_section_rva || func_rva >= text_section_rva + text_section_size {
+                panic!("Target export {} is outside of the .text section (RVA 0x{:x}). Cannot process further.", func_name_str, func_rva);
+            }
 
             println!("Found target export {} with raw offset 0x{:x} and RVA 0x{:x}", func_name_str, func_raw_offset, func_rva);
             println!("Target export raw offset from .text section is 0x{:x}", func_offset_from_text);

@@ -8,7 +8,6 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include <intrin.h>
 
 typedef HMODULE (WINAPI * LOADLIBRARYA)( LPCSTR );
 typedef FARPROC (WINAPI * GETPROCADDRESS)( HMODULE, LPCSTR );
@@ -44,7 +43,7 @@ __forceinline unsigned long djb2_hash(char* input) {
     register unsigned long hash = 5381;
     int c;
 
-    while (c = *input++) {
+    while ((c = *input++)) {
         hash = ((hash << 5) + hash) + c;
     }
     return hash;
