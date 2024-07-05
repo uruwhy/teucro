@@ -4,9 +4,9 @@ mod inject;
 use embed_resources::*;
 
 fn main() {
-    let loader_offset = extract_shellcode_and_get_export_offset!("..\\loader\\loader.dll", "..\\loader\\loader.dll.bin", "ReflectiveLoader");
+    let loader_offset = extract_shellcode_and_get_export_offset!("..\\loader\\loader.exe", "..\\loader\\loader.exe.bin", "ReflectiveLoader");
 
-    let shellcode = include_bytes!("../../loader/loader.dll.bin");
+    let shellcode = include_bytes!("../../loader/loader.exe.bin");
 
     #[cfg(debug_assertions)]
     let target_dll_bytes = include_bytes!("../../dll_to_inject/target/debug/toinject.dll");

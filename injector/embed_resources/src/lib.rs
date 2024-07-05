@@ -23,7 +23,6 @@ use windows::Win32::{
             IMAGE_NT_HEADERS64,
             IMAGE_NT_OPTIONAL_HDR64_MAGIC,
             IMAGE_SECTION_HEADER,
-            IMAGE_FILE_DLL,
             IMAGE_DIRECTORY_ENTRY_EXPORT,
         },
     },
@@ -78,21 +77,14 @@ unsafe fn extract_text_section_and_get_export_offset(dll_path: &str, dest_path: 
         panic!("Only 64-bit binaries supported.");
     }
 
-    // Verify module is a DLL
-    if (*nt_headers_ptr).FileHeader.Characteristics & IMAGE_FILE_DLL != IMAGE_FILE_DLL {
-        panic!("Module is not a DLL.");
-    }
-
     println!("Validated DOS and NT headers");
 
-    // Check that module has exports
     let export_dir_rva: u32 = (*nt_headers_ptr).OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT.0 as usize].VirtualAddress;
     let export_dir_size: u32 = (*nt_headers_ptr).OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT.0 as usize].Size;
-    if export_dir_rva == 0 {
-        panic!("Could not find module's export directory: Null RVA.");
-    }
-    if export_dir_size == 0 {
-        panic!("Could not find module's export directory: export size of 0.");
+    let mut no_exports: bool = false;
+    if export_dir_rva == 0 || export_dir_size == 0 {
+        println!("No export, assuming PIC.");
+        no_exports = true;
     }
 
     // Iterate over sections to find .text section and which section contains the export dir
@@ -130,7 +122,7 @@ unsafe fn extract_text_section_and_get_export_offset(dll_path: &str, dest_path: 
 
             extracted = true;
         }
-        if (*curr_section).VirtualAddress <= export_dir_rva && export_dir_rva + export_dir_size <= (*curr_section).VirtualAddress + (*curr_section).Misc.VirtualSize {
+        if !no_exports && (*curr_section).VirtualAddress <= export_dir_rva && export_dir_rva + export_dir_size <= (*curr_section).VirtualAddress + (*curr_section).Misc.VirtualSize {
             let section_name = std::str::from_utf8(&(*curr_section).Name).unwrap();
             println!("Section {} contains export directory.", section_name);
 
@@ -141,13 +133,18 @@ unsafe fn extract_text_section_and_get_export_offset(dll_path: &str, dest_path: 
             println!("Export dir offset: 0x{:x}", export_dir_offset);
             found_export_section = true;
         }
-        if extracted && found_export_section {
+        if extracted && (found_export_section || no_exports) {
             break;
         }
     }
 
     if !extracted {
         panic!("Failed to find and extract .text section.");
+    }
+
+    // Handle case for regular position-independent code
+    if no_exports {
+        return 0;
     }
 
     if !found_export_section {
