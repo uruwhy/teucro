@@ -1,3 +1,6 @@
 [submodule "dll_to_inject"]
 	path = dll_to_inject
 	url = https://github.com/uruwhy/RustDllPoc
+[submodule "injector/WinApiHashRust"]
+	path = injector/WinApiHashRust
+	url = https://github.com/uruwhy/WinApiHashRust

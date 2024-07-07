@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-djb2 = { path = "djb2" }
-djb2macro = { path = "djb2macro" }
-hash_resolver = { path = "hash_resolver" }
+djb2 = { path = "WinApiHashRust/djb2" }
+djb2macro = { path = "WinApiHashRust/djb2macro" }
+hash_resolver = { path = "WinApiHashRust/hash_resolver" }
 embed_resources = { path = "embed_resources" }
 
 [target.'cfg(windows)'.dependencies.windows]
