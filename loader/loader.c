@@ -10,15 +10,21 @@
 
 #include "loader.h"
 
-DWORD ReflectiveLoader( LPVOID lpParameter ) {
+void piMemCpy(unsigned char* src, unsigned char* dst, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        dst[i] = src[i];
+    }
+}
+
+DWORD ReflectiveLoader(LPVOID lpParameter) {
     // Function pointers
     LOADLIBRARYA pLoadLibraryA     = NULL;
     GETPROCADDRESS pGetProcAddress = NULL;
     VIRTUALALLOC pVirtualAlloc     = NULL;
     NTFLUSHINSTRUCTIONCACHE pNtFlushInstructionCache = NULL;
 
-    // Initial location of DLL to inject in memoory
-    ULONG_PTR uiLibraryAddress = (ULONG_PTR)lpParameter;
+    // Initial location of DLL to inject in memory
+    ULONG_PTR initialDllBase = (ULONG_PTR)lpParameter;
 
     // process environment block pointers
     ULONG_PTR pebAddress;
@@ -38,13 +44,17 @@ DWORD ReflectiveLoader( LPVOID lpParameter ) {
     ULONG_PTR funcAddr;
 
     // variables for loading the target image
-    ULONG_PTR uiHeaderValue;
+    PIMAGE_NT_HEADERS initialDllNtHeaders;
     PLDR_DATA_TABLE_ENTRY pebModuleEntry;
     PWSTR pebModuleName;
     DWORD pebModuleNameHash;
-    ULONG_PTR uiValueD;
-    ULONG_PTR uiValueE;
+    ULONG_PTR mappedDllBase;
 
+    // Testing
+    char dummyDll[] = {
+        'C', ':', '\\', 'U', 's', 'e', 'r', 's', '\\', 'P', 'u', 'b', 'l', 'i', 'c', '\\',
+        't', 'o', 'i', 'n', 'j', 'e', 'c', 't', '.', 'd', 'l', 'l', 0
+    };
 
     // ===========================================================//
     // Process the kernel's exports for required loader functions //
@@ -115,9 +125,16 @@ DWORD ReflectiveLoader( LPVOID lpParameter ) {
         pebModuleEntry = (PLDR_DATA_TABLE_ENTRY)pebModuleEntry->InMemoryOrderModuleList.Flink;
     }
 
+    // Map DLL image into new memory location. We will set execution permissions to appropriate sections later
+    initialDllNtHeaders = (PIMAGE_NT_HEADERS)(initialDllBase + ((PIMAGE_DOS_HEADER)initialDllBase)->e_lfanew);
+    mappedDllBase = (ULONG_PTR)pVirtualAlloc(NULL, initialDllNtHeaders->OptionalHeader.SizeOfImage, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+
+    // Copy headers
+    piMemCpy((unsigned char*)initialDllBase, (unsigned char*)mappedDllBase, initialDllNtHeaders->OptionalHeader.SizeOfHeaders);
+
     // testing
     if (pLoadLibraryA && pGetProcAddress && pVirtualAlloc && pNtFlushInstructionCache) {
-        pLoadLibraryA((char*)lpParameter);
+        pLoadLibraryA(dummyDll);
     }
 
     return 0;
