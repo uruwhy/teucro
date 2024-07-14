@@ -14,4 +14,6 @@ Most of the heavy lifting is taken from Stephen's repository, though the approac
 
 # References:
 - [Stephen Fewer's Reflective DLL Injection technique](https://github.com/stephenfewer/ReflectiveDLLInjection/tree/master)
+- [Executing Position Independent Shellcode from Object Files in Memory](https://bruteratel.com/research/feature-update/2021/01/30/OBJEXEC/)
 - [Analysing the Process Environment Block](https://void-stack.github.io/blog/post-Exploring-PEB/)
+- [Writing your own RDI /sRDI loader using C and ASM](https://blog.malicious.group/writing-your-own-rdi-srdi-loader-using-c-and-asm/)
