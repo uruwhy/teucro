@@ -19,7 +19,8 @@ Most of the heavy lifting is taken from Stephen's repository, though the approac
 - [ ] Remaining shellcode functionality - load DLL in memory
 - [ ] Handle TLS callbacks
 - [ ] Have Rust shellcode injector encrypt DLL prior to injection and have shellcode decrypt prior to loading in memory
-- [ ] Extra defense evasion - Hell's Gate for direct syscalls in loader shellcode
+- [ ] Extra shellcode defense evasion - Hell's Gate for direct syscalls in loader shellcode
+- [ ] Extra injector defense evasion - Hell's Gate for direct syscalls in Rust injector
 
 # References:
 - [Stephen Fewer's Reflective DLL Injection technique](https://github.com/stephenfewer/ReflectiveDLLInjection/tree/master)
