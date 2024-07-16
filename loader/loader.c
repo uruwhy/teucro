@@ -120,9 +120,9 @@ DWORD ReflectiveLoader(LPVOID lpParameter) {
         pebModuleEntry = (PLDR_DATA_TABLE_ENTRY)pebModuleEntry->InMemoryOrderModuleList.Flink;
     }
 
-    // Map DLL image into new memory location. We will set execution permissions to appropriate sections later
+    // Map DLL image into new memory location. TODO - look into adjusting permissions on a by-section basis
     moduleNtHeaders = (PIMAGE_NT_HEADERS)(initialDllBase + ((PIMAGE_DOS_HEADER)initialDllBase)->e_lfanew);
-    mappedDllBase = (ULONG_PTR)pVirtualAlloc(NULL, moduleNtHeaders->OptionalHeader.SizeOfImage, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    mappedDllBase = (ULONG_PTR)pVirtualAlloc(NULL, moduleNtHeaders->OptionalHeader.SizeOfImage, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 
     // Copy headers
     piMemCpy((unsigned char*)initialDllBase, (unsigned char*)mappedDllBase, moduleNtHeaders->OptionalHeader.SizeOfHeaders);
