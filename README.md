@@ -1,4 +1,4 @@
-# Teucro Reflective DLL Injection
+# Teucro Reflective DLL Injection (WIP)
 Reflective DLL injection proof of concept derived from [Stephen Fewer's Reflective DLL Injection technique](https://github.com/stephenfewer/ReflectiveDLLInjection/tree/master).
 Most of the heavy lifting is taken from Stephen's repository, though the approach I took is slightly different:
 - The loader shellcode (written in C) is separate from the injected DLL, to allow for more flexibility when loading pre-made DLLs
@@ -11,6 +11,14 @@ Most of the heavy lifting is taken from Stephen's repository, though the approac
   encrypted DLL
 - The loader shellcode will use the host process' PEB to resolve required Kernel32 imports for loading the DLL, decrypt the DLL in the host process memory, and reflectively load
   the DLL.
+
+# Roadmap
+- [x] Shellcode stub that will parse PEB and grab required APIs
+- [x] Create basic Rust shellcode injector that reads in pre-existing loader shellcode and DLL to inject
+- [x] Test shellcode stub and have it load a dummy DLL
+- [ ] Remaining shellcode functionality - load DLL in memory
+- [ ] Handle TLS callbacks
+- [ ] Have Rust shellcode injector encrypt DLL prior to injection and have shellcode decrypt prior to loading in memory
 
 # References:
 - [Stephen Fewer's Reflective DLL Injection technique](https://github.com/stephenfewer/ReflectiveDLLInjection/tree/master)
