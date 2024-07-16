@@ -14,7 +14,7 @@ Most of the heavy lifting is taken from Stephen's repository, though the approac
 
 # Roadmap
 - [x] Shellcode stub that will parse PEB and grab required APIs
-- [x] Create basic Rust shellcode injector that reads in pre-existing loader shellcode and DLL to inject
+- [x] Create basic Rust shellcode injector that grabs loader shellcode and DLL to inject at build time
 - [x] Test shellcode stub and have it load a dummy DLL
 - [ ] Remaining shellcode functionality - load DLL in memory
 - [ ] Handle TLS callbacks
