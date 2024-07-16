@@ -26,12 +26,14 @@ DWORD ReflectiveLoader(LPVOID lpParameter) {
     // Initial location of DLL to inject in memory
     ULONG_PTR initialDllBase = (ULONG_PTR)lpParameter;
 
-    // process environment block pointers
-    ULONG_PTR pebAddress;
+    // variables for processing the PEB
     PPEB_LDR_DATA pPebLdrData;
+    PLDR_DATA_TABLE_ENTRY pebModuleEntry;
+    PWSTR pebModuleName;
+    DWORD pebModuleNameHash;
 
     // variables for processing module export tables
-    PIMAGE_NT_HEADERS moduleNtHeader;
+    PIMAGE_NT_HEADERS moduleNtHeaders;
     ULONG_PTR moduleBaseAddress;
     PIMAGE_EXPORT_DIRECTORY moduleExportDir;
     PDWORD moduleFuncExportTable;
@@ -44,10 +46,6 @@ DWORD ReflectiveLoader(LPVOID lpParameter) {
     ULONG_PTR funcAddr;
 
     // variables for loading the target image
-    PIMAGE_NT_HEADERS initialDllNtHeaders;
-    PLDR_DATA_TABLE_ENTRY pebModuleEntry;
-    PWSTR pebModuleName;
-    DWORD pebModuleNameHash;
     ULONG_PTR mappedDllBase;
 
     // Testing
@@ -60,13 +58,10 @@ DWORD ReflectiveLoader(LPVOID lpParameter) {
     // Process the kernel's exports for required loader functions //
     // ===========================================================//
 
-    // Access the PEB (x64 only)
-    pebAddress = __readgsqword(0x60);
-
-    // Get the loaded modules for the host process
+    // Access the PEB (x64 only) to get the loaded modules for the host process
     // References: https://learn.microsoft.com/en-us/windows/win32/api/winternl/ns-winternl-peb
     // https://learn.microsoft.com/en-us/windows/win32/api/winternl/ns-winternl-peb_ldr_data
-    pPebLdrData = (PPEB_LDR_DATA)((_PPEB)pebAddress)->pLdr;
+    pPebLdrData = (PPEB_LDR_DATA)((_PPEB)__readgsqword(0x60))->pLdr;
 
     // Iterate through and process module entries in the PEB
     pebModuleEntry = (PLDR_DATA_TABLE_ENTRY)pPebLdrData->InMemoryOrderModuleList.Flink;
@@ -80,10 +75,10 @@ DWORD ReflectiveLoader(LPVOID lpParameter) {
         if (pebModuleNameHash == KERNEL32DLL_HASH || pebModuleNameHash == NTDLLDLL_HASH) {
             // Process module of interest - get the exported functions
             moduleBaseAddress = (ULONG_PTR)(pebModuleEntry->DllBase);
-            moduleNtHeader = (PIMAGE_NT_HEADERS)(moduleBaseAddress + ((PIMAGE_DOS_HEADER)moduleBaseAddress)->e_lfanew);
+            moduleNtHeaders = (PIMAGE_NT_HEADERS)(moduleBaseAddress + ((PIMAGE_DOS_HEADER)moduleBaseAddress)->e_lfanew);
 
             // Get export directory and related export info
-            moduleExportDir = (PIMAGE_EXPORT_DIRECTORY)(moduleBaseAddress + moduleNtHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
+            moduleExportDir = (PIMAGE_EXPORT_DIRECTORY)(moduleBaseAddress + moduleNtHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
             moduleFuncExportTable = (PDWORD)(moduleBaseAddress + moduleExportDir->AddressOfFunctions);
             moduleFuncNameTable = (PDWORD)(moduleBaseAddress + moduleExportDir->AddressOfNames);
             moduleFuncOrdinalTable = (PWORD)(moduleBaseAddress + moduleExportDir->AddressOfNameOrdinals);
@@ -126,16 +121,19 @@ DWORD ReflectiveLoader(LPVOID lpParameter) {
     }
 
     // Map DLL image into new memory location. We will set execution permissions to appropriate sections later
-    initialDllNtHeaders = (PIMAGE_NT_HEADERS)(initialDllBase + ((PIMAGE_DOS_HEADER)initialDllBase)->e_lfanew);
-    mappedDllBase = (ULONG_PTR)pVirtualAlloc(NULL, initialDllNtHeaders->OptionalHeader.SizeOfImage, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    moduleNtHeaders = (PIMAGE_NT_HEADERS)(initialDllBase + ((PIMAGE_DOS_HEADER)initialDllBase)->e_lfanew);
+    mappedDllBase = (ULONG_PTR)pVirtualAlloc(NULL, moduleNtHeaders->OptionalHeader.SizeOfImage, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 
     // Copy headers
-    piMemCpy((unsigned char*)initialDllBase, (unsigned char*)mappedDllBase, initialDllNtHeaders->OptionalHeader.SizeOfHeaders);
+    piMemCpy((unsigned char*)initialDllBase, (unsigned char*)mappedDllBase, moduleNtHeaders->OptionalHeader.SizeOfHeaders);
 
     // testing
     if (pLoadLibraryA && pGetProcAddress && pVirtualAlloc && pNtFlushInstructionCache) {
         pLoadLibraryA(dummyDll);
     }
+
+    // TODO - parse through old DLL sections and then set the appropriate R/RW/RWE permissions in the mapped DLL
+    // ref: https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-image_section_header (Characteristics)
 
     return 0;
 }
