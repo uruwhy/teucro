@@ -6,15 +6,15 @@ use hash_resolver::*;
 use embed_resources::*;
 
 fn main() {
-    let loader_offset = extract_shellcode_and_get_export_offset!("..\\loader\\loader.exe", "..\\loader\\loader.exe.bin", "ReflectiveLoader");
+    let loader_offset = extract_shellcode_and_get_export_offset!("loader\\loader.exe", "loader\\loader.exe.bin", "ReflectiveLoader");
 
     let shellcode = include_bytes!("../../loader/loader.exe.bin");
 
     #[cfg(debug_assertions)]
-    let target_dll_bytes = include_bytes!("../../dll_to_inject/target/debug/toinject.dll");
+    let target_dll_bytes = include_bytes!("../../target/debug/toinject.dll");
 
     #[cfg(not(debug_assertions))]
-    let target_dll_bytes = include_bytes!("../../dll_to_inject/target/release/toinject.dll");
+    let target_dll_bytes = include_bytes!("../../target/release/toinject.dll");
 
     std::process::exit(perform_reflective_dll_injection(shellcode, target_dll_bytes, loader_offset));
 }
