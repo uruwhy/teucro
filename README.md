@@ -12,7 +12,24 @@ Most of the heavy lifting is taken from Stephen's repository, though the approac
 - The loader shellcode will use the host process' PEB to resolve required Kernel32 imports for loading the DLL, decrypt the DLL in the host process memory, and reflectively load
   the DLL.
 
-# Roadmap
+## Build
+
+Will build shellcode and both debug and release Rust components
+```PowerShell
+nmake
+```
+
+To clean up artifacts except Rust 3rd party dependencies
+```PowerShell
+nmake clean
+```
+
+If you want to clean up Rust 3rd party dependencies (this will cause the next build to be noticeably longer):
+```PowerShell
+cargo clean
+```
+
+## Roadmap
 - [x] Shellcode stub that will parse PEB and grab required APIs
 - [x] Create basic Rust shellcode injector that grabs loader shellcode and DLL to inject at build time
 - [x] Test shellcode stub and have it load a dummy DLL
@@ -22,7 +39,7 @@ Most of the heavy lifting is taken from Stephen's repository, though the approac
 - [ ] Extra shellcode defense evasion - Hell's Gate for direct syscalls in loader shellcode
 - [ ] Extra injector defense evasion - Hell's Gate for direct syscalls in Rust injector
 
-# References:
+## References:
 - [Stephen Fewer's Reflective DLL Injection technique](https://github.com/stephenfewer/ReflectiveDLLInjection/tree/master)
 - [Executing Position Independent Shellcode from Object Files in Memory](https://bruteratel.com/research/feature-update/2021/01/30/OBJEXEC/)
 - [Analysing the Process Environment Block](https://void-stack.github.io/blog/post-Exploring-PEB/)
