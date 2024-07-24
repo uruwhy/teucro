@@ -10,7 +10,7 @@
 
 #include "loader.h"
 
-void piMemCpy(unsigned char* src, unsigned char* dst, size_t n) {
+void piMemCpy(unsigned char* dst, unsigned char* src, size_t n) {
     for (size_t i = 0; i < n; i++) {
         dst[i] = src[i];
     }
@@ -40,13 +40,14 @@ DWORD ReflectiveLoader(LPVOID lpParameter) {
     PDWORD moduleFuncNameTable;
     PWORD moduleFuncOrdinalTable;
     DWORD apiHashValue;
-    USHORT remainingExports;
+    USHORT remaining;
     char* funcName;
     UINT32 namesProcessed;
     ULONG_PTR funcAddr;
 
     // variables for loading the target image
     ULONG_PTR mappedDllBase;
+    ULONG_PTR sectionAddr;
 
     // Testing
     char dummyDll[] = {
@@ -85,14 +86,14 @@ DWORD ReflectiveLoader(LPVOID lpParameter) {
 
             // Grabbing a total of 3 APIs from Kernel32.dll, 1 from Ntdll.dll
             if (pebModuleNameHash == KERNEL32DLL_HASH) {
-                remainingExports = 3;
+                remaining = 3;
             } else {
-                remainingExports = 1;
+                remaining = 1;
             }
 
             // Process the exported names and grab the address of the ones that match desired hashes
             namesProcessed = 0;
-            while (remainingExports > 0 && namesProcessed < moduleExportDir->NumberOfNames) {
+            while (remaining > 0 && namesProcessed < moduleExportDir->NumberOfNames) {
                 funcName = (char *)(moduleBaseAddress + moduleFuncNameTable[namesProcessed]);
                 apiHashValue = djb2_hash(funcName);
                 if (apiHashValue == LOADLIBRARYA_HASH || apiHashValue == GETPROCADDRESS_HASH || apiHashValue == VIRTUALALLOC_HASH || apiHashValue == NTFLUSHINSTRUCTIONCACHE_HASH) {
@@ -106,7 +107,7 @@ DWORD ReflectiveLoader(LPVOID lpParameter) {
                     else if (apiHashValue == NTFLUSHINSTRUCTIONCACHE_HASH)
                         pNtFlushInstructionCache = (NTFLUSHINSTRUCTIONCACHE)funcAddr;
 
-                    remainingExports--;
+                    remaining--;
                 }
                 namesProcessed++;
             }
@@ -120,20 +121,33 @@ DWORD ReflectiveLoader(LPVOID lpParameter) {
         pebModuleEntry = (PLDR_DATA_TABLE_ENTRY)pebModuleEntry->InMemoryOrderModuleList.Flink;
     }
 
-    // Map DLL image into new memory location. TODO - look into adjusting permissions on a by-section basis
+    // Map DLL image into new memory location. Future TODO - look into adjusting permissions on a by-section basis
     moduleNtHeaders = (PIMAGE_NT_HEADERS)(initialDllBase + ((PIMAGE_DOS_HEADER)initialDllBase)->e_lfanew);
     mappedDllBase = (ULONG_PTR)pVirtualAlloc(NULL, moduleNtHeaders->OptionalHeader.SizeOfImage, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 
     // Copy headers
-    piMemCpy((unsigned char*)initialDllBase, (unsigned char*)mappedDllBase, moduleNtHeaders->OptionalHeader.SizeOfHeaders);
+    piMemCpy((unsigned char*)mappedDllBase, (unsigned char*)initialDllBase, moduleNtHeaders->OptionalHeader.SizeOfHeaders);
+
+    // Load in DLL sections - first section starts after optional header
+    sectionAddr = (ULONG_PTR)&(moduleNtHeaders->OptionalHeader) + moduleNtHeaders->FileHeader.SizeOfOptionalHeader;
+    remaining = moduleNtHeaders->FileHeader.NumberOfSections;
+    while (remaining--) {
+        piMemCpy(
+            (unsigned char*)(mappedDllBase + ((PIMAGE_SECTION_HEADER)sectionAddr)->VirtualAddress), // destination VA
+            (unsigned char*)(initialDllBase + ((PIMAGE_SECTION_HEADER)sectionAddr)->PointerToRawData), // original section in mem
+            ((PIMAGE_SECTION_HEADER)sectionAddr)->SizeOfRawData
+        );
+
+        // advance to next section
+        sectionAddr += sizeof(IMAGE_SECTION_HEADER);
+    }
+
+    // TODO - process IAT and relocations
 
     // testing
     if (pLoadLibraryA && pGetProcAddress && pVirtualAlloc && pNtFlushInstructionCache) {
         pLoadLibraryA(dummyDll);
     }
-
-    // TODO - parse through old DLL sections and then set the appropriate R/RW/RWE permissions in the mapped DLL
-    // ref: https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-image_section_header (Characteristics)
 
     return 0;
 }
