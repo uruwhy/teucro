@@ -48,6 +48,9 @@ DWORD ReflectiveLoader(LPVOID lpParameter) {
     // variables for loading the target image
     ULONG_PTR mappedDllBase;
     ULONG_PTR sectionAddr;
+    PIMAGE_IMPORT_DESCRIPTOR pImportDesc;
+    PIMAGE_THUNK_DATA iltThunk;
+    ULONG_PTR iatThunkAddr;
 
     // Testing
     char dummyDll[] = {
@@ -141,6 +144,36 @@ DWORD ReflectiveLoader(LPVOID lpParameter) {
         // advance to next section
         sectionAddr += sizeof(IMAGE_SECTION_HEADER);
     }
+
+    // Process IAT
+
+    // Get first entry to Import Directory Table based on the corresponding data directory entry
+    // https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-image_data_directory
+    if (moduleNtHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size) {
+        pImportDesc = (PIMAGE_IMPORT_DESCRIPTOR)(mappedDllBase + moduleNtHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+
+        // Last entry is zeroed out
+        while (pImportDesc->Name) {
+            // Load imported module
+            moduleBaseAddress = (ULONG_PTR)pLoadLibraryA((LPCSTR)(mappedDllBase + pImportDesc->Name));
+
+            // Import Lookup Table
+            iltThunk = (PIMAGE_THUNK_DATA)(mappedDllBase + pImportDesc->OriginalFirstThunk);
+
+            // IAT
+            iatThunkAddr = (ULONG_PTR)(mappedDllBase + pImportDesc->FirstThunk);
+
+            // Process imported functions
+            while(DEREF(iatThunkAddr)) {
+                // Check if we're doing this by ordinal
+                if (pImportDesc->OriginalFirstThunk && iltThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG) {
+
+                }
+            }
+        }
+    }
+
+
 
     // TODO - process IAT and relocations
 
