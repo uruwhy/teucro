@@ -48,6 +48,10 @@ DWORD ReflectiveLoader(LPVOID lpParameter) {
     // variables for loading the target image
     ULONG_PTR mappedDllBase;
     ULONG_PTR sectionAddr;
+    PIMAGE_IMPORT_DESCRIPTOR pImportDesc;
+    PIMAGE_THUNK_DATA iltThunk;
+    ULONG_PTR iatThunkAddr;
+    PIMAGE_NT_HEADERS importNtHeaders;
 
     // Testing
     char dummyDll[] = {
@@ -142,7 +146,57 @@ DWORD ReflectiveLoader(LPVOID lpParameter) {
         sectionAddr += sizeof(IMAGE_SECTION_HEADER);
     }
 
-    // TODO - process IAT and relocations
+    // Process IAT
+
+    // Get first entry to Import Directory Table based on the corresponding data directory entry
+    // https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-image_data_directory
+    if (moduleNtHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size) {
+        pImportDesc = (PIMAGE_IMPORT_DESCRIPTOR)(mappedDllBase + moduleNtHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+
+        // Last entry is zeroed out
+        while (pImportDesc->Name) {
+            // Load imported module
+            moduleBaseAddress = (ULONG_PTR)pLoadLibraryA((LPCSTR)(mappedDllBase + pImportDesc->Name));
+            importNtHeaders = (PIMAGE_NT_HEADERS)(moduleBaseAddress + ((PIMAGE_DOS_HEADER)moduleBaseAddress)->e_lfanew);
+
+            // Import Lookup Table
+            iltThunk = (PIMAGE_THUNK_DATA)(mappedDllBase + pImportDesc->OriginalFirstThunk);
+
+            // IAT
+            iatThunkAddr = (ULONG_PTR)(mappedDllBase + pImportDesc->FirstThunk);
+
+            // Process imported functions
+            while(DEREF(iatThunkAddr)) {
+                // Check if we're doing this by ordinal
+                if (DEREF(iltThunk) && iltThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG) {
+                    // Get export directory and related export info
+                    moduleExportDir = (PIMAGE_EXPORT_DIRECTORY)(moduleBaseAddress + importNtHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
+                    funcAddr = moduleBaseAddress + moduleExportDir->AddressOfFunctions;
+
+                    // Import ordinal - ordinal base = index for address array
+                    funcAddr += ((IMAGE_ORDINAL(iltThunk->u1.Ordinal - moduleExportDir->Base)) * sizeof(DWORD));
+
+                    // Store address
+                    DEREF(iatThunkAddr) = moduleBaseAddress + DEREF_32(funcAddr);
+                } else {
+                    // Get name and resolve via GetProcAddress
+                    funcName = (char*)(((PIMAGE_IMPORT_BY_NAME)(moduleBaseAddress + DEREF(iatThunkAddr)))->Name);
+                    DEREF(iatThunkAddr) = (ULONG_PTR)pGetProcAddress((HMODULE)moduleBaseAddress, funcName);
+                }
+
+                // Advance to next function
+                iatThunkAddr += sizeof(ULONG_PTR);
+                if (DEREF(iltThunk)) {
+                    iltThunk++;
+                }
+            }
+
+            // Advance to next import
+            pImportDesc++;
+        }
+    }
+
+    // TODO - process relocations
 
     // testing
     if (pLoadLibraryA && pGetProcAddress && pVirtualAlloc && pNtFlushInstructionCache) {
