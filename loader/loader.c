@@ -51,6 +51,7 @@ DWORD ReflectiveLoader(LPVOID lpParameter) {
     PIMAGE_IMPORT_DESCRIPTOR pImportDesc;
     PIMAGE_THUNK_DATA iltThunk;
     ULONG_PTR iatThunkAddr;
+    PIMAGE_NT_HEADERS importNtHeaders;
 
     // Testing
     char dummyDll[] = {
@@ -156,6 +157,7 @@ DWORD ReflectiveLoader(LPVOID lpParameter) {
         while (pImportDesc->Name) {
             // Load imported module
             moduleBaseAddress = (ULONG_PTR)pLoadLibraryA((LPCSTR)(mappedDllBase + pImportDesc->Name));
+            importNtHeaders = (PIMAGE_NT_HEADERS)(moduleBaseAddress + ((PIMAGE_DOS_HEADER)moduleBaseAddress)->e_lfanew);
 
             // Import Lookup Table
             iltThunk = (PIMAGE_THUNK_DATA)(mappedDllBase + pImportDesc->OriginalFirstThunk);
@@ -166,16 +168,35 @@ DWORD ReflectiveLoader(LPVOID lpParameter) {
             // Process imported functions
             while(DEREF(iatThunkAddr)) {
                 // Check if we're doing this by ordinal
-                if (pImportDesc->OriginalFirstThunk && iltThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG) {
+                if (DEREF(iltThunk) && iltThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG) {
+                    // Get export directory and related export info
+                    moduleExportDir = (PIMAGE_EXPORT_DIRECTORY)(moduleBaseAddress + importNtHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
+                    funcAddr = moduleBaseAddress + moduleExportDir->AddressOfFunctions;
 
+                    // Import ordinal - ordinal base = index for address array
+                    funcAddr += ((IMAGE_ORDINAL(iltThunk->u1.Ordinal - moduleExportDir->Base)) * sizeof(DWORD));
+
+                    // Store address
+                    DEREF(iatThunkAddr) = moduleBaseAddress + DEREF_32(funcAddr);
+                } else {
+                    // Get name and resolve via GetProcAddress
+                    funcName = (char*)(((PIMAGE_IMPORT_BY_NAME)(moduleBaseAddress + DEREF(iatThunkAddr)))->Name);
+                    DEREF(iatThunkAddr) = (ULONG_PTR)pGetProcAddress((HMODULE)moduleBaseAddress, funcName);
+                }
+
+                // Advance to next function
+                iatThunkAddr += sizeof(ULONG_PTR);
+                if (DEREF(iltThunk)) {
+                    iltThunk++;
                 }
             }
+
+            // Advance to next import
+            pImportDesc++;
         }
     }
 
-
-
-    // TODO - process IAT and relocations
+    // TODO - process relocations
 
     // testing
     if (pLoadLibraryA && pGetProcAddress && pVirtualAlloc && pNtFlushInstructionCache) {
