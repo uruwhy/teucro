@@ -52,6 +52,12 @@ DWORD ReflectiveLoader(LPVOID lpParameter) {
     PIMAGE_THUNK_DATA iltThunk;
     ULONG_PTR iatThunkAddr;
     PIMAGE_NT_HEADERS importNtHeaders;
+    ULONG_PTR baseDelta;
+    PIMAGE_DATA_DIRECTORY relocDirectory;
+    PIMAGE_BASE_RELOCATION relocBlock;
+    ULONG_PTR relocPageAddr;
+    ULONG_PTR numRelocEntries;
+    PIMAGE_RELOC relocEntry;
 
     // Testing
     char dummyDll[] = {
@@ -174,7 +180,7 @@ DWORD ReflectiveLoader(LPVOID lpParameter) {
                     funcAddr = moduleBaseAddress + moduleExportDir->AddressOfFunctions;
 
                     // Import ordinal - ordinal base = index for address array
-                    funcAddr += ((IMAGE_ORDINAL(iltThunk->u1.Ordinal - moduleExportDir->Base)) * sizeof(DWORD));
+                    funcAddr += (IMAGE_ORDINAL(iltThunk->u1.Ordinal) - moduleExportDir->Base) * sizeof(DWORD);
 
                     // Store address
                     DEREF(iatThunkAddr) = moduleBaseAddress + DEREF_32(funcAddr);
@@ -196,12 +202,56 @@ DWORD ReflectiveLoader(LPVOID lpParameter) {
         }
     }
 
-    // TODO - process relocations
+    // Process relocations
+    // Ref: https://0xrick.github.io/win-internals/pe7/
+
+    // Get the difference between the assumed base address and the actual base address
+    baseDelta = mappedDllBase - moduleNtHeaders->OptionalHeader.ImageBase;
+
+    // Get relocation directory and process any relocations
+    relocDirectory = &(moduleNtHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC]);
+    if (relocDirectory->Size) {
+        // iterate through relocation blocks
+        relocBlock = (PIMAGE_BASE_RELOCATION)(mappedDllBase + relocDirectory->VirtualAddress);
+        while(relocBlock->SizeOfBlock) {
+            relocPageAddr = mappedDllBase + relocBlock->VirtualAddress;
+
+            // relocation block starts with IMAGE_BASE_RELOCATION struct, followed by IMAGE_RELOC structs
+            numRelocEntries = (relocBlock->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(IMAGE_RELOC);
+
+            // iterate through entries
+            relocEntry = (PIMAGE_RELOC)((ULONG_PTR)relocBlock + sizeof(IMAGE_BASE_RELOCATION));
+            while(numRelocEntries--) {
+                // perform the relocation, skipping IMAGE_REL_BASED_ABSOLUTE as required.
+                // avoid switch statements to maintain position independence
+                if (relocEntry->type == IMAGE_REL_BASED_DIR64)
+                    *(ULONG_PTR *)(relocPageAddr + relocEntry->offset) += baseDelta;
+                else if (relocEntry->type == IMAGE_REL_BASED_HIGHLOW)
+                    *(DWORD *)(relocPageAddr + relocEntry->offset) += (DWORD)baseDelta;
+                else if (relocEntry->type == IMAGE_REL_BASED_HIGH )
+                    *(WORD *)(relocPageAddr + relocEntry->offset) += HIWORD(baseDelta);
+                else if (relocEntry->type == IMAGE_REL_BASED_LOW )
+                    *(WORD *)(relocPageAddr + relocEntry->offset) += LOWORD(baseDelta);
+
+                relocEntry++;
+            }
+
+            // advance to the next relocation entry
+            relocBlock = (PIMAGE_BASE_RELOCATION)((ULONG_PTR)relocBlock + relocBlock->SizeOfBlock);
+        }
+    }
+
+    // Flush the instruction cache to avoid stale code being used which was updated by our relocation processing
+    pNtFlushInstructionCache((HANDLE)-1, NULL, 0);
+
+    // Call entry point (DllMain with no parameter)
+    funcAddr = mappedDllBase + moduleNtHeaders->OptionalHeader.AddressOfEntryPoint;
+    ((DLLMAIN)funcAddr)((HINSTANCE)mappedDllBase, DLL_PROCESS_ATTACH, NULL);
 
     // testing
-    if (pLoadLibraryA && pGetProcAddress && pVirtualAlloc && pNtFlushInstructionCache) {
-        pLoadLibraryA(dummyDll);
-    }
+    //if (pLoadLibraryA && pGetProcAddress && pVirtualAlloc && pNtFlushInstructionCache) {
+    //    pLoadLibraryA(dummyDll);
+    //}
 
     return 0;
 }
